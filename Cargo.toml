@@ -1,0 +1,34 @@
+[package]
+name = "worklogger2"
+version = "2.0.0"
+edition = "2024"
+authors = ["idaho06 <cesar.idaho@gmail.com>"]
+description = "A text editor for creating daily work log files"
+license = "GPL-2.0-only"
+
+# Prevent console window from appearing in release builds
+[[bin]]
+name = "worklogger2"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+strip = true        # Strip symbols
+
+[dependencies]
+native-windows-gui = "1.0"
+native-windows-derive = "1.0"
+chrono = "0.4"
+winreg = "0.52"
+dirs-next = "2.0"
+winapi = { version = "0.3", features = ["winuser", "wingdi", "windef"] }
+
+[build-dependencies]
+embed-resource = "2"
+
+[package.metadata.wix]
+upgrade-guid = "498B3B74-8FEA-40D9-9254-FF045C00CBEA"
+path-guid = "646C7CAF-BC8C-4A9A-93B1-8515717D2A94"
+license = "LICENSE"
+eula = false

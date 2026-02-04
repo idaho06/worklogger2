@@ -1,0 +1,150 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<!--
+    WorkLogger2 MSI Installer Configuration
+  Copyright (C) 2024-2026 idaho06 (AkinoSoft)
+-->
+
+<?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?else ?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?endif ?>
+
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+
+    <Product
+        Id='*'
+        Name='WorkLogger2'
+        UpgradeCode='498B3B74-8FEA-40D9-9254-FF045C00CBEA'
+        Manufacturer='AkinoSoft'
+        Language='1033'
+        Codepage='1252'
+        Version='$(var.Version)'>
+
+        <Package Id='*'
+            Keywords='Installer'
+            Description='WorkLogger2 - A text editor for creating daily work log files'
+            Manufacturer='AkinoSoft'
+            InstallerVersion='450'
+            Languages='1033'
+            Compressed='yes'
+            InstallScope='perUser'
+            SummaryCodepage='1252'
+            />
+
+        <MajorUpgrade
+            Schedule='afterInstallInitialize'
+            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+
+        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
+        <Property Id='DiskPrompt' Value='WorkLogger2 Installation'/>
+
+        <Directory Id='TARGETDIR' Name='SourceDir'>
+            <!-- Install to LocalAppData for per-user installation -->
+            <Directory Id='LocalAppDataFolder'>
+                <Directory Id='APPLICATIONFOLDER' Name='WorkLogger2'>
+                    <Component Id='MainExecutable' Guid='F0D6E2D3-3E5B-4F85-9B6E-9B2E7E5C7A31'>
+                        <File
+                            Id='exe0'
+                            Name='worklogger2.exe'
+                            DiskId='1'
+                            Source='$(var.CargoTargetBinDir)\worklogger2.exe'/>
+                        <RemoveFolder Id='CleanUpApplicationFolder' On='uninstall'/>
+                        <RegistryValue
+                            Root='HKCU'
+                            Key='Software\AkinoSoft\WorkLogger2'
+                            Name='mainExecutable'
+                            Type='integer'
+                            Value='1'
+                            KeyPath='yes'/>
+                    </Component>
+                </Directory>
+            </Directory>
+
+            <!-- Start Menu Shortcut -->
+            <Directory Id='ProgramMenuFolder'>
+                <Directory Id='ApplicationProgramsFolder' Name='AkinoSoft'>
+                    <Component Id='ApplicationShortcut' Guid='3C2B7A4F-9E6A-4C2E-9C7E-6B4E1F8A2D15'>
+                        <Shortcut
+                            Id='ApplicationStartMenuShortcut'
+                            Name='WorkLogger2'
+                            Description='Daily Work Log Editor'
+                            Target='[APPLICATIONFOLDER]worklogger2.exe'
+                            WorkingDirectory='APPLICATIONFOLDER'
+                            Hotkey='1612'
+                            Icon='ProductICO'/>
+                        <RemoveFolder Id='CleanUpShortCut' Directory='ApplicationProgramsFolder' On='uninstall'/>
+                        <RegistryValue
+                            Root='HKCU'
+                            Key='Software\AkinoSoft\WorkLogger2'
+                            Name='installed'
+                            Type='integer'
+                            Value='1'
+                            KeyPath='yes'/>
+                    </Component>
+                </Directory>
+            </Directory>
+
+            <!-- Desktop Shortcut -->
+            <Directory Id='DesktopFolder' Name='Desktop'>
+                <Component Id='DesktopShortcut' Guid='8B5E1D2C-7F6A-4E9B-A4F3-1C9E7D6A5B20'>
+                    <Shortcut
+                        Id='DesktopShortcut'
+                        Name='WorkLogger2'
+                        Description='Daily Work Log Editor'
+                        Target='[APPLICATIONFOLDER]worklogger2.exe'
+                        WorkingDirectory='APPLICATIONFOLDER'
+                        Icon='ProductICO'/>
+                    <RegistryValue
+                        Root='HKCU'
+                        Key='Software\AkinoSoft\WorkLogger2'
+                        Name='desktopShortcut'
+                        Type='integer'
+                        Value='1'
+                        KeyPath='yes'/>
+                </Component>
+            </Directory>
+        </Directory>
+
+        <Feature
+            Id='MainProgram'
+            Title='WorkLogger2'
+            Description='The complete WorkLogger2 application.'
+            Level='1'
+            ConfigurableDirectory='APPLICATIONFOLDER'
+            AllowAdvertise='no'
+            Display='expand'
+            Absent='disallow'>
+
+            <ComponentRef Id='MainExecutable'/>
+            <ComponentRef Id='ApplicationShortcut'/>
+
+            <Feature
+                Id='DesktopShortcutFeature'
+                Title='Desktop Shortcut'
+                Description='Add a shortcut to WorkLogger2 on your desktop.'
+                Level='1'
+                Absent='allow'>
+                <ComponentRef Id='DesktopShortcut'/>
+            </Feature>
+        </Feature>
+
+        <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
+
+        <!-- Application Icon -->
+        <Icon Id='ProductICO' SourceFile='resources\wl.ico'/>
+        <Property Id='ARPPRODUCTICON' Value='ProductICO'/>
+
+        <!-- Help URL -->
+        <Property Id='ARPHELPLINK' Value='https://github.com/idaho06/worklogger'/>
+
+        <UI>
+            <UIRef Id='WixUI_FeatureTree'/>
+            <!-- Skip license dialog -->
+            <Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>
+            <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
+        </UI>
+
+    </Product>
+
+</Wix>

@@ -1,0 +1,22 @@
+/target
+/.vs
+/.claude
+
+# VS Code
+/.vscode
+
+# JetBrains
+/.idea
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# WiX / installers (keep build outputs out of git)
+*.msi
+*.wixobj
+*.wixpdb
+*.cab
+
+# Misc
+*.log
