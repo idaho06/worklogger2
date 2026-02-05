@@ -1,6 +1,6 @@
 [package]
 name = "worklogger2"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 authors = ["idaho06 <cesar.idaho@gmail.com>"]
 description = "A text editor for creating daily work log files"
@@ -14,12 +14,14 @@ path = "src/main.rs"
 [profile.release]
 opt-level = "z"     # Optimize for size
 lto = true          # Link-time optimization
+codegen-units = 1
+panic = "abort"
 strip = true        # Strip symbols
 
 [dependencies]
 native-windows-gui = "1.0"
 native-windows-derive = "1.0"
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 winreg = "0.52"
 dirs-next = "2.0"
 winapi = { version = "0.3", features = ["winuser", "wingdi", "windef"] }
