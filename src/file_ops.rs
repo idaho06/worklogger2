@@ -25,9 +25,10 @@ pub fn save_log(log_path: &Path, project_name: &str, content: &str) -> io::Resul
         .append(true)
         .open(&path)?;
 
-    // Add blank lines before content (like Java version)
-    writeln!(file)?;
-    writeln!(file)?;
+    // Add blank lines before content only when appending to an existing file
+    if file.metadata()?.len() > 0 {
+        write!(file, "\n\n")?;
+    }
     write!(file, "{}", content)?;
 
     Ok(())

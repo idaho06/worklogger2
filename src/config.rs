@@ -105,14 +105,17 @@ impl Config {
         self.save();
     }
 
+    /// Sanitize a project name: replace spaces and illegal Windows filename chars with `_`, limit to 80 chars
+    pub fn sanitize_project_name(name: &str) -> String {
+        name.chars()
+            .take(80)
+            .map(|c| if matches!(c, ' ' | '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+            .collect()
+    }
+
     /// Update project name and save
     pub fn set_project_name(&mut self, name: &str) {
-        // Sanitize: replace spaces with underscores, limit length
-        let sanitized: String = name.chars()
-            .take(80)
-            .map(|c| if c == ' ' { '_' } else { c })
-            .collect();
-        self.project_name = sanitized;
+        self.project_name = Self::sanitize_project_name(name);
         self.save();
     }
 

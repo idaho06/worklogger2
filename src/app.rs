@@ -295,22 +295,19 @@ impl WorkLoggerApp {
     fn insert_time_at_cursor(&self) {
         let time_str = file_ops::get_current_time();
 
-        let selection = self.text_edit.selection();
-        let start = selection.start as usize;
-        let end = selection.end as usize;
-        let current_text = self.text_edit.text();
+        let sel = self.text_edit.selection();
+        let text = self.text_edit.text();
 
-        let chars: Vec<char> = current_text.chars().collect();
-        let start_idx = start.min(chars.len());
-        let end_idx = end.min(chars.len());
+        // Win32 EDIT selection positions are UTF-16 code-unit offsets; convert to byte offsets
+        let start_byte = utf16_offset_to_byte(&text, sel.start as usize);
+        let end_byte   = utf16_offset_to_byte(&text, sel.end as usize);
 
-        let before: String = chars.iter().take(start_idx).collect();
-        let after: String = chars.iter().skip(end_idx).collect();
-        let new_text = format!("{}{}{}", before, time_str, after);
-
+        let new_text = format!("{}{}{}", &text[..start_byte], time_str, &text[end_byte..]);
         self.text_edit.set_text(&new_text);
 
-        let new_pos = (start_idx + time_str.len()) as u32;
+        // Outgoing cursor position must also be in UTF-16 code units
+        let new_pos = (text[..start_byte].encode_utf16().count()
+                       + time_str.encode_utf16().count()) as u32;
         self.text_edit.set_selection(new_pos..new_pos);
     }
 
@@ -362,15 +359,15 @@ impl WorkLoggerApp {
             "Enter project name (prefix for log files):",
             &current_name
         ) {
-            let trimmed = new_name.trim();
-            if !trimmed.is_empty() && trimmed != current_name {
-                self.config.borrow_mut().set_project_name(trimmed);
+            let sanitized = Config::sanitize_project_name(new_name.trim());
+            if !sanitized.is_empty() && sanitized != current_name {
+                self.config.borrow_mut().set_project_name(&sanitized);
 
                 nwg::simple_message(
                     "Project Name",
                     &format!(
                         "Project name changed to: {}\n\nLog files will be named: {}YYYYMMDD.txt",
-                        trimmed, trimmed
+                        sanitized, sanitized
                     )
                 );
             }
@@ -417,6 +414,18 @@ impl WorkLoggerApp {
             nwg::error_message("Save Error", &format!("Failed to save log: {}", e));
         }
     }
+}
+
+/// Convert a UTF-16 code-unit offset (as returned by Win32 EM_GETSEL) to a UTF-8 byte offset.
+fn utf16_offset_to_byte(s: &str, utf16_pos: usize) -> usize {
+    let mut units = 0;
+    for (byte_pos, ch) in s.char_indices() {
+        if units >= utf16_pos {
+            return byte_pos;
+        }
+        units += ch.len_utf16();
+    }
+    s.len()
 }
 
 /// Type alias for the UI wrapper
