@@ -39,19 +39,14 @@ pub struct WorkLoggerApp {
     )]
     #[nwg_events(
         OnWindowClose: [WorkLoggerApp::on_close],
-        OnInit: [WorkLoggerApp::on_init],
         OnResizeEnd: [WorkLoggerApp::on_resize],
         OnWindowMaximize: [WorkLoggerApp::on_resize]
     )]
     pub window: nwg::Window,
 
     // ===== Text Editor =====
-    #[nwg_control(
-        parent: window,
-        flags: "VISIBLE|AUTOVSCROLL|VSCROLL|HSCROLL|TAB_STOP",
-        font: Some(&data.editor_font)
-    )]
-    pub text_edit: nwg::TextBox,
+    // Built in `build_editor`: its scroll style depends on the word wrap setting
+    text_edit: RefCell<nwg::TextBox>,
 
     // Font for the text editor
     #[nwg_resource(family: "Consolas", size: 18, weight: 400)]
@@ -119,6 +114,36 @@ pub struct WorkLoggerApp {
     /// an editor still holding only this is not worth logging
     initial_text: RefCell<String>,
     theme_state: RefCell<Option<ThemeState>>,
+    /// Lets the editor's key handler reach the app
+    self_weak: RefCell<Weak<WorkLoggerAppUi>>,
+}
+
+const WM_KEYDOWN: u32 = 0x0100;
+
+/// Handle a keyboard shortcut; returns `Some` if the key was consumed
+fn handle_key(app: &WorkLoggerApp, wparam: usize) -> Option<isize> {
+    let key_down = |vk: i32| unsafe { winapi::um::winuser::GetKeyState(vk) < 0 };
+
+    // AltGr is reported as Ctrl+Alt, so require Alt (and Shift) to be
+    // up: AltGr+Q types '@' on some layouts and must not quit the app.
+    let ctrl_pressed = key_down(winapi::um::winuser::VK_CONTROL)
+        && !key_down(winapi::um::winuser::VK_MENU)
+        && !key_down(winapi::um::winuser::VK_SHIFT);
+
+    match (wparam as i32, ctrl_pressed) {
+        // Ctrl+T - Insert time
+        (0x54, true) => app.insert_time_at_cursor(),
+        // Ctrl+Q - Quit
+        (0x51, true) => app.on_close(),
+        // Ctrl+D - Toggle theme
+        (0x44, true) => app.on_toggle_theme(),
+        // F1 - About
+        (0x70, false) => app.on_about(),
+        // ESC - Save and close
+        (0x1B, false) => app.on_close(),
+        _ => return None,
+    }
+    Some(0)
 }
 
 impl WorkLoggerApp {
@@ -130,8 +155,9 @@ impl WorkLoggerApp {
         // Set up keyboard accelerator handler
         let app_rc = Rc::new(app_ui);
 
-        // Clone for the event handler
-        let app_weak = Rc::downgrade(&app_rc);
+        // The editor is created later (and re-created when word wrap is toggled),
+        // so its key handler reaches the app through this weak reference
+        *app_rc.self_weak.borrow_mut() = Rc::downgrade(&app_rc);
 
         // Create brushes for themes (these are leaked intentionally to live for app lifetime)
         let dark_brush = unsafe { winapi::um::wingdi::CreateSolidBrush(DARK_BG) };
@@ -146,60 +172,23 @@ impl WorkLoggerApp {
             is_dark,
         });
 
-        // Bind raw event handlers to catch keyboard and color messages
-        let make_handler = move |app_weak: Weak<WorkLoggerAppUi>, is_dark: Arc<AtomicBool>, dark_brush: usize, light_brush: usize| {
+        // Bind a raw event handler to the window to catch keyboard and color messages
+        let app_weak = Rc::downgrade(&app_rc);
+        let handler_window = nwg::bind_raw_event_handler(
+            &app_rc.window.handle,
+            0x10000,  // Handler ID (window)
             move |_hwnd, msg, wparam, _lparam| {
-                const WM_KEYDOWN: u32 = 0x0100;
                 const WM_CTLCOLOREDIT: u32 = 0x0133;
 
                 match msg {
                     WM_KEYDOWN => {
                         if let Some(app) = app_weak.upgrade() {
-                            let key_down = |vk: i32| unsafe {
-                                winapi::um::winuser::GetKeyState(vk) < 0
-                            };
-
-                            // AltGr is reported as Ctrl+Alt, so require Alt (and Shift) to be
-                            // up: AltGr+Q types '@' on some layouts and must not quit the app.
-                            let ctrl_pressed = key_down(winapi::um::winuser::VK_CONTROL)
-                                && !key_down(winapi::um::winuser::VK_MENU)
-                                && !key_down(winapi::um::winuser::VK_SHIFT);
-
-                            let key = wparam as i32;
-
-                            match (key, ctrl_pressed) {
-                                // Ctrl+T - Insert time
-                                (0x54, true) => {  // 'T' key
-                                    app.insert_time_at_cursor();
-                                    return Some(0);
-                                }
-                                // Ctrl+Q - Quit
-                                (0x51, true) => {  // 'Q' key
-                                    app.on_close();
-                                    return Some(0);
-                                }
-                                // Ctrl+D - Toggle theme
-                                (0x44, true) => {  // 'D' key
-                                    app.on_toggle_theme();
-                                    return Some(0);
-                                }
-                                // F1 - About
-                                (0x70, false) => {  // VK_F1
-                                    app.on_about();
-                                    return Some(0);
-                                }
-                                // ESC - Close
-                                (0x1B, false) => {  // VK_ESCAPE
-                                    app.on_close();
-                                    return Some(0);
-                                }
-                                _ => {}
-                            }
+                            return handle_key(&app, wparam);
                         }
                     }
                     WM_CTLCOLOREDIT => {
                         let hdc = wparam as winapi::shared::windef::HDC;
-                        let dark = is_dark.load(Ordering::Relaxed);
+                        let dark = is_dark_for_handler.load(Ordering::Relaxed);
 
                         unsafe {
                             if dark {
@@ -217,30 +206,19 @@ impl WorkLoggerApp {
                 }
                 None
             }
-        };
-
-        let handler_window = nwg::bind_raw_event_handler(
-            &app_rc.window.handle,
-            0x10000,  // Handler ID (window)
-            make_handler(app_weak.clone(), Arc::clone(&is_dark_for_handler), dark_brush as usize, light_brush as usize)
         );
 
-        let handler_text = nwg::bind_raw_event_handler(
-            &app_rc.text_edit.handle,
-            0x10001,  // Handler ID (text box)
-            make_handler(app_weak, is_dark_for_handler, dark_brush as usize, light_brush as usize)
-        );
-
-        // Store handlers to prevent them from being dropped
+        // Keep the handler alive for the app lifetime
         std::mem::forget(handler_window);
-        std::mem::forget(handler_text);
 
-        // Return the Rc - this keeps it alive so the Weak reference in the handler works
+        app_rc.init();
+
+        // Return the Rc - this keeps it alive so the Weak reference in the handlers works
         Ok(app_rc)
     }
 
-    /// Called when window initializes
-    fn on_init(&self) {
+    /// Finish setting up the UI once the window exists and the app is reachable via `self_weak`
+    fn init(&self) {
         // Initialize FileDialog
         let mut dialog = nwg::FileDialog::default();
         nwg::FileDialog::builder()
@@ -254,6 +232,9 @@ impl WorkLoggerApp {
         let config = Config::load();
         *self.config.borrow_mut() = config.clone();
 
+        // The editor's scroll style depends on the word wrap setting
+        self.build_editor(config.word_wrap);
+
         // Apply theme
         self.apply_theme();
 
@@ -265,20 +246,97 @@ impl WorkLoggerApp {
         if config.insert_time_at_start {
             self.insert_time_at_cursor();
         }
-        *self.initial_text.borrow_mut() = self.text_edit.text();
+        *self.initial_text.borrow_mut() = self.text_edit.borrow().text();
 
         // Set focus to text editor
-        self.text_edit.set_focus();
+        self.text_edit.borrow().set_focus();
 
         // Initial resize to position text editor
         self.on_resize();
     }
 
+    /// Create the text editor, replacing any previous one.
+    ///
+    /// Word wrap is a creation-time style of the Win32 edit control: it wraps unless it
+    /// has a horizontal scroll bar with ES_AUTOHSCROLL, so toggling it means re-creating
+    /// the control.
+    fn build_editor(&self, wrap: bool) {
+        let mut flags = nwg::TextBoxFlags::VISIBLE
+            | nwg::TextBoxFlags::AUTOVSCROLL
+            | nwg::TextBoxFlags::VSCROLL
+            | nwg::TextBoxFlags::TAB_STOP;
+        if !wrap {
+            flags |= nwg::TextBoxFlags::HSCROLL | nwg::TextBoxFlags::AUTOHSCROLL;
+        }
+
+        let mut editor = nwg::TextBox::default();
+        nwg::TextBox::builder()
+            .parent(&self.window)
+            .flags(flags)
+            .font(Some(&self.editor_font))
+            .build(&mut editor)
+            .expect("Failed to build text editor");
+
+        let app_weak = self.self_weak.borrow().clone();
+        let handler = nwg::bind_raw_event_handler(
+            &editor.handle,
+            0x10001,  // Handler ID (text box)
+            move |_hwnd, msg, wparam, _lparam| {
+                if msg == WM_KEYDOWN {
+                    if let Some(app) = app_weak.upgrade() {
+                        return handle_key(&app, wparam);
+                    }
+                }
+                None
+            }
+        );
+        std::mem::forget(handler);
+
+        // The previous editor (if any) is destroyed when it is dropped here
+        self.text_edit.replace(editor);
+    }
+
+    /// Re-create the editor with a new word wrap setting, keeping text and caret
+    fn rebuild_editor(&self, wrap: bool) {
+        let (text, selection) = {
+            let editor = self.text_edit.borrow();
+            (editor.text(), editor.selection())
+        };
+
+        self.build_editor(wrap);
+
+        {
+            let editor = self.text_edit.borrow();
+            editor.set_text(&text);
+            editor.set_selection(selection);
+            editor.set_focus();
+
+            if let nwg::ControlHandle::Hwnd(hwnd) = editor.handle {
+                unsafe {
+                    winapi::um::winuser::SendMessageW(
+                        hwnd,
+                        winapi::um::winuser::EM_SCROLLCARET as u32,
+                        0,
+                        0,
+                    );
+                }
+            }
+        }
+
+        self.on_resize();
+    }
+
     /// Called when window is resized
     fn on_resize(&self) {
+        let editor = self.text_edit.borrow();
+        // The window can be resized before the editor exists
+        if matches!(editor.handle, nwg::ControlHandle::NoHandle) {
+            return;
+        }
+
         let (w, h) = self.window.size();
-        self.text_edit.set_position(0, 0);
-        self.text_edit.set_size(w, h);
+        editor.set_position(0, 0);
+        editor.set_size(w, h);
     }
 
     /// Called when window close is requested
@@ -307,7 +365,7 @@ impl WorkLoggerApp {
         // Let the edit control replace its own selection: it keeps the undo
         // history and scroll position, and avoids converting selection offsets
         // (UTF-16 units, CRLF line breaks) to indexes into the text we read back.
-        if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.handle {
+        if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.borrow().handle {
             let wide: Vec<u16> = time_str.encode_utf16().chain(std::iter::once(0)).collect();
             unsafe {
                 winapi::um::winuser::SendMessageW(
@@ -334,18 +392,14 @@ impl WorkLoggerApp {
     }
 
     fn on_toggle_word_wrap(&self) {
-        // Release the borrow before showing the message box: it runs a message
-        // loop, and shortcuts handled meanwhile borrow the config again.
-        {
+        let wrap = {
             let mut config = self.config.borrow_mut();
             config.toggle_word_wrap();
             self.menu_word_wrap.set_checked(config.word_wrap);
-        }
+            config.word_wrap
+        };
 
-        nwg::simple_message(
-            "Word Wrap",
-            "Word wrap setting saved.\nRestart the application for changes to take effect."
-        );
+        self.rebuild_editor(wrap);
     }
 
     fn on_choose_directory(&self) {
@@ -409,7 +463,7 @@ impl WorkLoggerApp {
 
 
         // Force repaint of the text editor to apply new colors
-        if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.handle {
+        if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.borrow().handle {
             unsafe {
                 winapi::um::winuser::InvalidateRect(hwnd, std::ptr::null(), 1);
             }
@@ -421,7 +475,7 @@ impl WorkLoggerApp {
     /// Save the editor contents to today's log file.
     /// Returns false if saving failed and the user chose to keep the window open.
     fn save_text(&self) -> bool {
-        let content = self.text_edit.text();
+        let content = self.text_edit.borrow().text();
 
         if content.trim().is_empty() || content.trim() == self.initial_text.borrow().trim() {
             return true;
