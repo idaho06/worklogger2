@@ -115,6 +115,9 @@ pub struct WorkLoggerApp {
 
     // ===== Application State =====
     config: RefCell<Config>,
+    /// Text present right after startup (the auto-inserted time, if any);
+    /// an editor still holding only this is not worth logging
+    initial_text: RefCell<String>,
     theme_state: RefCell<Option<ThemeState>>,
 }
 
@@ -258,6 +261,7 @@ impl WorkLoggerApp {
         if config.insert_time_at_start {
             self.insert_time_at_cursor();
         }
+        *self.initial_text.borrow_mut() = self.text_edit.text();
 
         // Set focus to text editor
         self.text_edit.set_focus();
@@ -414,7 +418,7 @@ impl WorkLoggerApp {
     fn save_text(&self) -> bool {
         let content = self.text_edit.text();
 
-        if content.trim().is_empty() {
+        if content.trim().is_empty() || content.trim() == self.initial_text.borrow().trim() {
             return true;
         }
 
