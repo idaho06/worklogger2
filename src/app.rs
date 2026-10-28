@@ -334,9 +334,13 @@ impl WorkLoggerApp {
     }
 
     fn on_toggle_word_wrap(&self) {
-        let mut config = self.config.borrow_mut();
-        config.toggle_word_wrap();
-        self.menu_word_wrap.set_checked(config.word_wrap);
+        // Release the borrow before showing the message box: it runs a message
+        // loop, and shortcuts handled meanwhile borrow the config again.
+        {
+            let mut config = self.config.borrow_mut();
+            config.toggle_word_wrap();
+            self.menu_word_wrap.set_checked(config.word_wrap);
+        }
 
         nwg::simple_message(
             "Word Wrap",
