@@ -126,7 +126,7 @@ impl InputDialog {
 #[derive(Default, nwd::NwgUi)]
 pub struct AboutDialog {
     #[nwg_control(
-        size: (450, 280),
+        size: (730, 280),
         position: (400, 250),
         title: "About WorkLogger",
         flags: "WINDOW|VISIBLE",
@@ -147,6 +147,21 @@ pub struct AboutDialog {
 
     #[nwg_resource(family: "Segoe UI", size: 13)]
     small_font: nwg::Font,
+
+    // Application icon, shown large in the top-right corner
+    #[nwg_resource(
+        source_embed: Some(&nwg::EmbedResource::load(None).unwrap()),
+        source_embed_id: 1,
+        size: Some((256, 256))
+    )]
+    big_icon: nwg::Icon,
+
+    #[nwg_control(
+        position: (450, 12),
+        size: (256, 256),
+        icon: Some(&data.big_icon)
+    )]
+    icon_frame: nwg::ImageFrame,
 
     // Application name and version
     #[nwg_control(
@@ -182,17 +197,22 @@ pub struct AboutDialog {
     )]
     separator: nwg::Frame,
 
-    // Author info
+    // Author info: field names and values in two columns so they line up
     #[nwg_control(
-        text: "Author:      idaho06 (AkinoSoft)\n\
-               Email:        cesar.idaho@gmail.com\n\
-               GitHub:      github.com/idaho06\n\
-               Mastodon:     @idaho06@mastodon.social",
+        text: "Author:\nEmail:\nGitHub:\nMastodon:",
         position: (20, 145),
-        size: (410, 80),
+        size: (80, 80),
         font: Some(&data.info_font)
     )]
-    author_label: nwg::Label,
+    author_names: nwg::Label,
+
+    #[nwg_control(
+        text: "idaho06 (AkinoSoft)\ncesar.idaho@gmail.com\ngithub.com/idaho06\n@idaho06@mastodon.social",
+        position: (105, 145),
+        size: (325, 80),
+        font: Some(&data.info_font)
+    )]
+    author_values: nwg::Label,
 
     // Copyright
     #[nwg_control(
