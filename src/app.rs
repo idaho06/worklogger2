@@ -275,8 +275,9 @@ impl WorkLoggerApp {
 
     /// Called when window close is requested
     fn on_close(&self) {
-        self.save_text();
-        nwg::stop_thread_dispatch();
+        if self.save_text() {
+            nwg::stop_thread_dispatch();
+        }
     }
 
     // ===== Action Menu Handlers =====
@@ -408,17 +409,34 @@ impl WorkLoggerApp {
 
     // ===== File Operations =====
 
-    fn save_text(&self) {
+    /// Save the editor contents to today's log file.
+    /// Returns false if saving failed and the user chose to keep the window open.
+    fn save_text(&self) -> bool {
         let content = self.text_edit.text();
 
         if content.trim().is_empty() {
-            return;
+            return true;
         }
 
-        let config = self.config.borrow();
+        let result = {
+            let config = self.config.borrow();
+            file_ops::save_log(&config.log_path, &config.project_name, &content)
+        };
 
-        if let Err(e) = file_ops::save_log(&config.log_path, &config.project_name, &content) {
-            nwg::error_message("Save Error", &format!("Failed to save log: {}", e));
+        match result {
+            Ok(()) => true,
+            Err(e) => {
+                let choice = nwg::message(&nwg::MessageParams {
+                    title: "Save Error",
+                    content: &format!(
+                        "Failed to save log: {}\n\nQuit without saving? Choose No to keep the window open.",
+                        e
+                    ),
+                    buttons: nwg::MessageButtons::YesNo,
+                    icons: nwg::MessageIcons::Error,
+                });
+                choice == nwg::MessageChoice::Yes
+            }
         }
     }
 }
