@@ -5,6 +5,32 @@ use std::path::PathBuf;
 /// Registry path for storing configuration
 const REG_PATH: &str = r"Software\AkinoSoft\WorkLogger";
 
+/// Project name used when the configured one is empty after sanitizing
+const DEFAULT_PROJECT_NAME: &str = "WorkLog";
+
+/// Turn a user-supplied project name into a safe log file prefix:
+/// spaces, control characters and characters illegal in Windows file names
+/// become `_`, trailing dots are dropped (`..` cannot escape the log directory),
+/// the length is limited to 80 characters, and an empty result falls back to the default.
+pub fn sanitize_project_name(name: &str) -> String {
+    let cleaned: String = name.trim()
+        .chars()
+        .take(80)
+        .map(|c| match c {
+            ' ' | '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let cleaned = cleaned.trim_end_matches('.');
+
+    if cleaned.is_empty() {
+        DEFAULT_PROJECT_NAME.to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -54,7 +80,8 @@ impl Config {
                     gui_theme: key.get_value("gui_theme")
                         .unwrap_or(default.gui_theme),
 
-                    project_name: key.get_value("project_name")
+                    project_name: key.get_value::<String, _>("project_name")
+                        .map(|n| sanitize_project_name(&n))
                         .unwrap_or(default.project_name),
 
                     log_path: key.get_value::<String, _>("log_path")
@@ -107,12 +134,7 @@ impl Config {
 
     /// Update project name and save
     pub fn set_project_name(&mut self, name: &str) {
-        // Sanitize: replace spaces with underscores, limit length
-        let sanitized: String = name.chars()
-            .take(80)
-            .map(|c| if c == ' ' { '_' } else { c })
-            .collect();
-        self.project_name = sanitized;
+        self.project_name = sanitize_project_name(name);
         self.save();
     }
 
@@ -137,5 +159,29 @@ impl Config {
     /// Check if dark theme is active
     pub fn is_dark_theme(&self) -> bool {
         self.gui_theme == "dark"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replaces_spaces_and_illegal_chars() {
+        assert_eq!(sanitize_project_name("my project"), "my_project");
+        assert_eq!(sanitize_project_name("a:b?"), "a_b_");
+        assert_eq!(sanitize_project_name(r"..\..\evil"), ".._.._evil");
+    }
+
+    #[test]
+    fn strips_trailing_dots_and_falls_back() {
+        assert_eq!(sanitize_project_name(".."), "WorkLog");
+        assert_eq!(sanitize_project_name("   "), "WorkLog");
+        assert_eq!(sanitize_project_name("name."), "name");
+    }
+
+    #[test]
+    fn limits_length() {
+        assert_eq!(sanitize_project_name(&"x".repeat(200)).len(), 80);
     }
 }

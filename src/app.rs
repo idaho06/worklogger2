@@ -364,13 +364,17 @@ impl WorkLoggerApp {
         ) {
             let trimmed = new_name.trim();
             if !trimmed.is_empty() && trimmed != current_name {
-                self.config.borrow_mut().set_project_name(trimmed);
+                let stored = {
+                    let mut config = self.config.borrow_mut();
+                    config.set_project_name(trimmed);
+                    config.project_name.clone()
+                };
 
                 nwg::simple_message(
                     "Project Name",
                     &format!(
                         "Project name changed to: {}\n\nLog files will be named: {}YYYYMMDD.txt",
-                        trimmed, trimmed
+                        stored, stored
                     )
                 );
             }
