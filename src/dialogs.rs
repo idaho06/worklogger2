@@ -4,6 +4,17 @@ use nwg::NativeUi;
 
 use std::cell::RefCell;
 
+/// Center `window` over `parent`
+fn center_on(parent: &nwg::Window, window: &nwg::Window) {
+    let (px, py) = parent.position();
+    let (pw, ph) = parent.size();
+    let (dw, dh) = window.size();
+    window.set_position(
+        px + (pw as i32 - dw as i32) / 2,
+        py + (ph as i32 - dh as i32) / 2
+    );
+}
+
 // ============================================================================
 // Input Dialog
 // ============================================================================
@@ -72,14 +83,7 @@ impl InputDialog {
         *dialog.label_text.borrow_mut() = label.to_string();
         *dialog.initial_value.borrow_mut() = current.to_string();
 
-        // Center on parent
-        let (px, py) = parent.position();
-        let (pw, ph) = parent.size();
-        let (dw, dh) = dialog.window.size();
-        dialog.window.set_position(
-            px + (pw as i32 - dw as i32) / 2,
-            py + (ph as i32 - dh as i32) / 2
-        );
+        center_on(parent, &dialog.window);
 
         nwg::dispatch_thread_events();
 
@@ -122,7 +126,7 @@ impl InputDialog {
 #[derive(Default, nwd::NwgUi)]
 pub struct AboutDialog {
     #[nwg_control(
-        size: (450, 280),
+        size: (730, 280),
         position: (400, 250),
         title: "About WorkLogger",
         flags: "WINDOW|VISIBLE",
@@ -144,6 +148,21 @@ pub struct AboutDialog {
     #[nwg_resource(family: "Segoe UI", size: 13)]
     small_font: nwg::Font,
 
+    // Application icon, shown large in the top-right corner
+    #[nwg_resource(
+        source_embed: Some(&nwg::EmbedResource::load(None).unwrap()),
+        source_embed_id: 1,
+        size: Some((256, 256))
+    )]
+    big_icon: nwg::Icon,
+
+    #[nwg_control(
+        position: (450, 12),
+        size: (256, 256),
+        icon: Some(&data.big_icon)
+    )]
+    icon_frame: nwg::ImageFrame,
+
     // Application name and version
     #[nwg_control(
         text: "WorkLogger",
@@ -154,7 +173,7 @@ pub struct AboutDialog {
     title_label: nwg::Label,
 
     #[nwg_control(
-        text: "Version 2.0.1",
+        text: "Version 2.1.0",
         position: (20, 50),
         size: (200, 20),
         font: Some(&data.info_font)
@@ -178,17 +197,22 @@ pub struct AboutDialog {
     )]
     separator: nwg::Frame,
 
-    // Author info
+    // Author info: field names and values in two columns so they line up
     #[nwg_control(
-        text: "Author:      idaho06 (AkinoSoft)\n\
-               Email:        cesar.idaho@gmail.com\n\
-               GitHub:      github.com/idaho06\n\
-               Mastodon:     @idaho06@mastodon.social",
+        text: "Author:\nEmail:\nGitHub:\nMastodon:",
         position: (20, 145),
-        size: (410, 80),
+        size: (80, 80),
         font: Some(&data.info_font)
     )]
-    author_label: nwg::Label,
+    author_names: nwg::Label,
+
+    #[nwg_control(
+        text: "idaho06 (AkinoSoft)\ncesar.idaho@gmail.com\ngithub.com/idaho06\n@idaho06@mastodon.social",
+        position: (105, 145),
+        size: (325, 80),
+        font: Some(&data.info_font)
+    )]
+    author_values: nwg::Label,
 
     // Copyright
     #[nwg_control(
@@ -211,188 +235,12 @@ impl AboutDialog {
         let dialog = AboutDialog::build_ui(Default::default())
             .expect("Failed to build About dialog");
 
-        // Center on parent
-        let (px, py) = parent.position();
-        let (pw, ph) = parent.size();
-        let (dw, dh) = dialog.window.size();
-        dialog.window.set_position(
-            px + (pw as i32 - dw as i32) / 2,
-            py + (ph as i32 - dh as i32) / 2
-        );
+        center_on(parent, &dialog.window);
 
         nwg::dispatch_thread_events();
     }
 
     fn on_init(&self) {
-        self.btn_ok.set_focus();
-    }
-
-    fn on_close(&self) {
-        self.window.set_visible(false);
-        nwg::stop_thread_dispatch();
-    }
-}
-
-// ============================================================================
-// Confirmation Dialog
-// ============================================================================
-
-/// Confirmation dialog for yes/no questions
-#[derive(Default, nwd::NwgUi)]
-pub struct ConfirmDialog {
-    #[nwg_control(
-        size: (400, 140),
-        position: (400, 300),
-        title: "Confirm",
-        flags: "WINDOW|VISIBLE",
-        topmost: true
-    )]
-    #[nwg_events(
-        OnWindowClose: [ConfirmDialog::on_no],
-        OnInit: [ConfirmDialog::on_init]
-    )]
-    pub window: nwg::Window,
-
-    #[nwg_resource(family: "Segoe UI", size: 16)]
-    message_font: nwg::Font,
-
-    #[nwg_control(
-        text: "Are you sure?",
-        position: (15, 15),
-        size: (370, 55),
-        font: Some(&data.message_font)
-    )]
-    message_label: nwg::Label,
-
-    #[nwg_control(text: "Yes", position: (210, 85), size: (85, 35))]
-    #[nwg_events(OnButtonClick: [ConfirmDialog::on_yes])]
-    btn_yes: nwg::Button,
-
-    #[nwg_control(text: "No", position: (300, 85), size: (85, 35))]
-    #[nwg_events(OnButtonClick: [ConfirmDialog::on_no])]
-    btn_no: nwg::Button,
-
-    /// The message to display
-    message: RefCell<String>,
-
-    /// Result - true if Yes, false if No
-    pub result: RefCell<bool>,
-}
-
-impl ConfirmDialog {
-    /// Show confirmation dialog
-    /// Returns true if user clicked Yes, false otherwise
-    #[allow(dead_code)]
-    pub fn confirm(parent: &nwg::Window, title: &str, message: &str) -> bool {
-        let dialog = ConfirmDialog::build_ui(Default::default())
-            .expect("Failed to build confirm dialog");
-
-        dialog.window.set_text(title);
-        *dialog.message.borrow_mut() = message.to_string();
-
-        // Center on parent
-        let (px, py) = parent.position();
-        let (pw, ph) = parent.size();
-        let (dw, dh) = dialog.window.size();
-        dialog.window.set_position(
-            px + (pw as i32 - dw as i32) / 2,
-            py + (ph as i32 - dh as i32) / 2
-        );
-
-        nwg::dispatch_thread_events();
-
-        let result = *dialog.result.borrow();
-        result
-    }
-
-    fn on_init(&self) {
-        self.message_label.set_text(&self.message.borrow());
-        self.btn_no.set_focus();
-    }
-
-    fn on_yes(&self) {
-        *self.result.borrow_mut() = true;
-        self.close();
-    }
-
-    fn on_no(&self) {
-        *self.result.borrow_mut() = false;
-        self.close();
-    }
-
-    fn close(&self) {
-        self.window.set_visible(false);
-        nwg::stop_thread_dispatch();
-    }
-}
-
-// ============================================================================
-// Message Dialog (simple info/warning/error)
-// ============================================================================
-
-/// Message dialog for showing information
-#[derive(Default, nwd::NwgUi)]
-pub struct MessageDialog {
-    #[nwg_control(
-        size: (400, 160),
-        position: (400, 300),
-        title: "Information",
-        flags: "WINDOW|VISIBLE",
-        topmost: true
-    )]
-    #[nwg_events(
-        OnWindowClose: [MessageDialog::on_close],
-        OnInit: [MessageDialog::on_init]
-    )]
-    pub window: nwg::Window,
-
-    #[nwg_resource(family: "Segoe UI", size: 16)]
-    message_font: nwg::Font,
-
-    #[nwg_control(
-        text: "",
-        position: (15, 15),
-        size: (370, 80),
-        font: Some(&data.message_font)
-    )]
-    message_label: nwg::Label,
-
-    #[nwg_control(text: "OK", position: (300, 105), size: (85, 35))]
-    #[nwg_events(OnButtonClick: [MessageDialog::on_close])]
-    btn_ok: nwg::Button,
-
-    /// The message to display
-    message: RefCell<String>,
-}
-
-impl MessageDialog {
-    /// Show an information message
-    #[allow(dead_code)]
-    pub fn info(parent: &nwg::Window, title: &str, message: &str) {
-        Self::show_message(parent, title, message);
-    }
-
-    fn show_message(parent: &nwg::Window, title: &str, message: &str) {
-        let dialog = MessageDialog::build_ui(Default::default())
-            .expect("Failed to build message dialog");
-
-        dialog.window.set_text(title);
-        *dialog.message.borrow_mut() = message.to_string();
-
-        // Center on parent
-        let (px, py) = parent.position();
-        let (pw, ph) = parent.size();
-        let (dw, dh) = dialog.window.size();
-        dialog.window.set_position(
-            px + (pw as i32 - dw as i32) / 2,
-            py + (ph as i32 - dh as i32) / 2
-        );
-
-        nwg::dispatch_thread_events();
-    }
-
-    fn on_init(&self) {
-        self.message_label.set_text(&self.message.borrow());
         self.btn_ok.set_focus();
     }
 
