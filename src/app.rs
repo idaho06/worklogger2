@@ -155,11 +155,15 @@ impl WorkLoggerApp {
                 match msg {
                     WM_KEYDOWN => {
                         if let Some(app) = app_weak.upgrade() {
-                            let ctrl_pressed = unsafe {
-                                winapi::um::winuser::GetKeyState(
-                                    winapi::um::winuser::VK_CONTROL
-                                ) < 0
+                            let key_down = |vk: i32| unsafe {
+                                winapi::um::winuser::GetKeyState(vk) < 0
                             };
+
+                            // AltGr is reported as Ctrl+Alt, so require Alt (and Shift) to be
+                            // up: AltGr+Q types '@' on some layouts and must not quit the app.
+                            let ctrl_pressed = key_down(winapi::um::winuser::VK_CONTROL)
+                                && !key_down(winapi::um::winuser::VK_MENU)
+                                && !key_down(winapi::um::winuser::VK_SHIFT);
 
                             let key = wparam as i32;
 
