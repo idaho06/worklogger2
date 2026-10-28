@@ -2,11 +2,9 @@ use native_windows_gui as nwg;
 use native_windows_derive as nwd;
 use nwg::NativeUi;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use crate::config::Config;
 use crate::file_ops;
 use crate::dialogs::{InputDialog, AboutDialog};
@@ -16,11 +14,6 @@ const DARK_BG: u32 = 0x00282828;      // Dark gray background
 const DARK_FG: u32 = 0x00E0E0E0;      // Light gray text
 const LIGHT_BG: u32 = 0x00FFFFFF;     // White background
 const LIGHT_FG: u32 = 0x00000000;     // Black text
-
-/// Holds theme-related state shared with raw event handlers
-struct ThemeState {
-    is_dark: Arc<AtomicBool>,
-}
 
 /// Main application state and UI
 #[derive(Default, nwd::NwgUi)]
@@ -112,7 +105,8 @@ pub struct WorkLoggerApp {
     /// Text present right after startup (the auto-inserted time, if any);
     /// an editor still holding only this is not worth logging
     initial_text: RefCell<String>,
-    theme_state: RefCell<Option<ThemeState>>,
+    /// Current theme, shared with the raw color handler (set by `apply_theme`)
+    is_dark: Rc<Cell<bool>>,
     /// Lets the editor's key handler reach the app
     self_weak: RefCell<Weak<WorkLoggerAppUi>>,
 }
@@ -162,14 +156,7 @@ impl WorkLoggerApp {
         let dark_brush = unsafe { winapi::um::wingdi::CreateSolidBrush(DARK_BG) };
         let light_brush = unsafe { winapi::um::wingdi::CreateSolidBrush(LIGHT_BG) };
 
-        // Shared theme state for the handler
-        let is_dark = Arc::new(AtomicBool::new(true));
-        let is_dark_for_handler = Arc::clone(&is_dark);
-
-        // Store in app for later use
-        *app_rc.theme_state.borrow_mut() = Some(ThemeState {
-            is_dark,
-        });
+        let is_dark = Rc::clone(&app_rc.is_dark);
 
         // Bind a raw event handler to the window to catch keyboard and color messages
         let app_weak = Rc::downgrade(&app_rc);
@@ -187,10 +174,8 @@ impl WorkLoggerApp {
                     }
                     WM_CTLCOLOREDIT => {
                         let hdc = wparam as winapi::shared::windef::HDC;
-                        let dark = is_dark_for_handler.load(Ordering::Relaxed);
-
                         unsafe {
-                            if dark {
+                            if is_dark.get() {
                                 winapi::um::wingdi::SetTextColor(hdc, DARK_FG);
                                 winapi::um::wingdi::SetBkColor(hdc, DARK_BG);
                                 return Some(dark_brush as isize);
@@ -309,18 +294,8 @@ impl WorkLoggerApp {
             editor.set_text(&text);
             editor.set_selection(selection);
             editor.set_focus();
-
-            if let nwg::ControlHandle::Hwnd(hwnd) = editor.handle {
-                unsafe {
-                    winapi::um::winuser::SendMessageW(
-                        hwnd,
-                        winapi::um::winuser::EM_SCROLLCARET as u32,
-                        0,
-                        0,
-                    );
-                }
-            }
         }
+        self.send_editor_message(winapi::um::winuser::EM_SCROLLCARET, 0, 0);
 
         self.on_resize();
     }
@@ -364,15 +339,19 @@ impl WorkLoggerApp {
         // Let the edit control replace its own selection: it keeps the undo
         // history and scroll position, and avoids converting selection offsets
         // (UTF-16 units, CRLF line breaks) to indexes into the text we read back.
+        let wide: Vec<u16> = time_str.encode_utf16().chain(std::iter::once(0)).collect();
+        self.send_editor_message(
+            winapi::um::winuser::EM_REPLACESEL,
+            1, // can be undone
+            wide.as_ptr() as isize,
+        );
+    }
+
+    /// Send a Win32 message to the text editor
+    fn send_editor_message(&self, msg: u16, wparam: usize, lparam: isize) {
         if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.borrow().handle {
-            let wide: Vec<u16> = time_str.encode_utf16().chain(std::iter::once(0)).collect();
             unsafe {
-                winapi::um::winuser::SendMessageW(
-                    hwnd,
-                    winapi::um::winuser::EM_REPLACESEL as u32,
-                    1, // can be undone
-                    wide.as_ptr() as winapi::shared::minwindef::LPARAM,
-                );
+                winapi::um::winuser::SendMessageW(hwnd, msg as u32, wparam, lparam);
             }
         }
     }
@@ -453,13 +432,8 @@ impl WorkLoggerApp {
     // ===== Theme Handling =====
 
     fn apply_theme(&self) {
-        let is_dark = self.config.borrow().is_dark_theme();
-
-        // Update the atomic flag for the raw event handler
-        if let Some(ref theme_state) = *self.theme_state.borrow() {
-            theme_state.is_dark.store(is_dark, Ordering::Relaxed);
-        }
-
+        // Update the flag read by the raw event handler
+        self.is_dark.set(self.config.borrow().is_dark_theme());
 
         // Force repaint of the text editor to apply new colors
         if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.borrow().handle {
