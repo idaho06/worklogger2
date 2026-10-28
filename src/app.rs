@@ -39,8 +39,7 @@ pub struct WorkLoggerApp {
     )]
     #[nwg_events(
         OnWindowClose: [WorkLoggerApp::on_close],
-        OnResizeEnd: [WorkLoggerApp::on_resize],
-        OnWindowMaximize: [WorkLoggerApp::on_resize]
+        OnResize: [WorkLoggerApp::on_resize]
     )]
     pub window: nwg::Window,
 
