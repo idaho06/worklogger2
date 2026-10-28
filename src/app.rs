@@ -300,23 +300,20 @@ impl WorkLoggerApp {
     fn insert_time_at_cursor(&self) {
         let time_str = file_ops::get_current_time();
 
-        let selection = self.text_edit.selection();
-        let start = selection.start as usize;
-        let end = selection.end as usize;
-        let current_text = self.text_edit.text();
-
-        let chars: Vec<char> = current_text.chars().collect();
-        let start_idx = start.min(chars.len());
-        let end_idx = end.min(chars.len());
-
-        let before: String = chars.iter().take(start_idx).collect();
-        let after: String = chars.iter().skip(end_idx).collect();
-        let new_text = format!("{}{}{}", before, time_str, after);
-
-        self.text_edit.set_text(&new_text);
-
-        let new_pos = (start_idx + time_str.len()) as u32;
-        self.text_edit.set_selection(new_pos..new_pos);
+        // Let the edit control replace its own selection: it keeps the undo
+        // history and scroll position, and avoids converting selection offsets
+        // (UTF-16 units, CRLF line breaks) to indexes into the text we read back.
+        if let nwg::ControlHandle::Hwnd(hwnd) = self.text_edit.handle {
+            let wide: Vec<u16> = time_str.encode_utf16().chain(std::iter::once(0)).collect();
+            unsafe {
+                winapi::um::winuser::SendMessageW(
+                    hwnd,
+                    winapi::um::winuser::EM_REPLACESEL as u32,
+                    1, // can be undone
+                    wide.as_ptr() as winapi::shared::minwindef::LPARAM,
+                );
+            }
+        }
     }
 
     // ===== Options Menu Handlers =====
