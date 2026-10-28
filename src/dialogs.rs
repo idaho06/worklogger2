@@ -158,7 +158,7 @@ pub struct AboutDialog {
     title_label: nwg::Label,
 
     #[nwg_control(
-        text: "Version 2.0.1",
+        text: "Version 2.1.0",
         position: (20, 50),
         size: (200, 20),
         font: Some(&data.info_font)
